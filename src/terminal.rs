@@ -220,19 +220,22 @@ struct DisplayFacts {
     fg: Rgb,
     bg: Rgb,
     cursor: Rgb,
+    /// The 16 ANSI colors, so the core can answer palette queries (OSC 4).
+    palette: [Rgb; 16],
     /// In device pixels, what the core reports to programs (CSI 14t, 16t).
     cell: (u32, u32),
 }
 
 /// Only send changed facts; a theme switch need not change the cell size.
 fn display_update(told: &mut Option<DisplayFacts>, theme: &vt::Theme, cell: (u32, u32)) -> Option<serde_json::Value> {
-    let facts = DisplayFacts { fg: theme.fg, bg: theme.bg, cursor: theme.cursor, cell };
+    let facts = DisplayFacts { fg: theme.fg, bg: theme.bg, cursor: theme.cursor, palette: theme.palette16, cell };
     if *told == Some(facts) {
         return None;
     }
     *told = Some(facts);
     let hex = |c: Rgb| format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2);
-    Some(json!({"fg": hex(facts.fg), "bg": hex(facts.bg), "cursor": hex(facts.cursor), "cell": [cell.0, cell.1]}))
+    let palette: Vec<String> = facts.palette.iter().map(|&c| hex(c)).collect();
+    Some(json!({"fg": hex(facts.fg), "bg": hex(facts.bg), "cursor": hex(facts.cursor), "palette": palette, "cell": [cell.0, cell.1]}))
 }
 
 pub fn initial_display(window: &Window) -> serde_json::Value {
@@ -4947,6 +4950,9 @@ mod tests {
         let mut told = None;
         let first = super::display_update(&mut told, &theme, cell).unwrap();
         assert_eq!(first["cell"], serde_json::json!([9, 18]));
+        let hex = |c: Rgb| format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2);
+        let palette: Vec<String> = theme.palette16.iter().map(|&c| hex(c)).collect();
+        assert_eq!(first["palette"], serde_json::json!(palette), "all 16 colors, in index order");
         assert!(super::display_update(&mut told, &theme, cell).is_none());
 
         for background in [Rgb(255, 255, 255), Rgb(23, 25, 29)] {
@@ -4965,6 +4971,10 @@ mod tests {
         assert_eq!(super::display_update(&mut told, &theme, (17, 43)).unwrap()["cell"], serde_json::json!([17, 43]));
         theme.selection_bg = Rgb(7, 8, 9);
         assert!(super::display_update(&mut told, &theme, (17, 43)).is_none(), "local selection colors are not core display facts");
+        theme.palette16[12] = Rgb(10, 11, 12);
+        let update = super::display_update(&mut told, &theme, (17, 43)).expect("a palette-only change must reach the core");
+        assert_eq!(update["palette"][12], "#0a0b0c");
+        assert_eq!(update["palette"].as_array().unwrap().len(), 16);
     }
 
     #[test]
