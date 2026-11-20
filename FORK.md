@@ -18,7 +18,7 @@ While on the fork, don't keep an official copy of the app on the machine. Both c
 - PR branches (e.g. `fix/display-palette`): cut from `upstream/master`, carrying one patch each. Upstream work happens on branches like these, never on `fork`.
 - `master`: tracks upstream; keep it untouched.
 
-Remotes: `origin` is lunelson/herdr-app, `upstream` is herdrdev/herdr-app.
+Remotes: `origin` is lunelson/herdr-app, `upstream` is herdrdev/herdr-app. Every local branch is pushed to `origin` and tracks it, PR branches too, whether or not their PR is open (`git push -u origin <branch>`).
 
 ## Patches carried on `fork`
 
@@ -67,7 +67,7 @@ git fetch upstream && git log --oneline fork..upstream/master
 6. Verify (below).
 7. `git push --force-with-lease origin fork`. After a rebase, `fork` and `origin/fork` have diverged on purpose: don't `git pull`, which would merge the old history back in. On another machine, take the pushed branch with `git fetch origin && git reset --hard origin/fork` (only when that machine's `fork` has no commits of its own).
 
-Also rebase open PR branches on `upstream/master`.
+Also rebase PR branches on `upstream/master` and push them (`git push --force-with-lease origin <branch>`).
 
 ## Verify after a reinstall
 
