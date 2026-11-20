@@ -234,8 +234,11 @@ A layout is a tree of nodes. Four types:
   `"header"` (a mod that draws tabs, or `"tabs"` for a plain built-in strip).
 
 Properties any node can have:
-- `id` (unique; commands use it), `size`: `{ "px": 240 }` or `{ "weight": 2 }`
-  (shares of what fixed siblings leave), `min` / `max` (px), `hidden`.
+- `id` (unique; commands use it), `size`: `{ "px": 240 }`, `{ "weight": 2 }`
+  (shares of what fixed siblings leave) or `{ "fit": true }` (as long as its
+  content along the row/column, full across it; its boundaries don't drag; a
+  mod in it sizes its root to its content on that axis, not `size_full()`),
+  `min` / `max` (px), `hidden`.
 - Paint: `background` (a color; `{ "gradient": ["#2a6cbd", "#0b2a57"], "angle": 165 }`;
   or `{ "image": "backgrounds/sky.jpg", "fit": "cover" | "contain" }`, a path in
   the home folder), `border` (`{ "width": 1, "color": "border" }`), `radius`,

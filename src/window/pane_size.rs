@@ -30,7 +30,7 @@ pub(super) fn separator_width(n: &Node, gap: f32) -> f32 {
 
 pub(super) fn weight(n: &Node) -> f32 {
     match n.size {
-        Some(Span::Px { .. }) => 0.0,
+        Some(Span::Px { .. } | Span::Fit { .. }) => 0.0,
         Some(Span::Weight { weight }) => weight,
         None => 1.0,
     }
@@ -55,6 +55,11 @@ fn shares(children: &[&Node], available: f32, zoom: f32) -> Vec<f32> {
         match n.size {
             Some(Span::Px { px }) => {
                 sizes[i] = (px * zoom).max(n.min.unwrap_or(0.0) * zoom).min(n.max.unwrap_or(f32::INFINITY) * zoom);
+                left -= sizes[i];
+            }
+            // Its content isn't measured here: count its min, else nothing.
+            Some(Span::Fit { .. }) => {
+                sizes[i] = n.min.unwrap_or(0.0) * zoom;
                 left -= sizes[i];
             }
             _ => pending.push(i),
