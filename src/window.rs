@@ -1266,6 +1266,19 @@ impl AppWindow {
 
     // ---- making the screen match the model ---------------------------------
 
+    /// For a block in a row or column of a shown layout: the axis it fits
+    /// its content along (`{"fit": true}`), else Some(None). None: not such a block.
+    fn layout_fit(&self, slot: &str) -> Option<Option<Axis>> {
+        let tab = self.model.active_tab().map(|c| c.shown());
+        let overlays = self.overlays.iter().filter_map(|o| o.layout.as_ref());
+        std::iter::once(&self.chrome).chain(tab).chain(overlays).find_map(|root| {
+            let parent = root.parent_of(slot)?;
+            let axis = parent.axis()?;
+            let n = parent.children().iter().find(|c| c.id == slot)?;
+            Some(matches!(n.size, Some(Span::Fit { .. })).then_some(axis))
+        })
+    }
+
     /// Visible slots: terminal blocks (id → address) and mod slots (key → instance).
     fn visible(&self) -> (Vec<(String, String)>, Vec<(String, Instance)>) {
         let mut terms = Vec::new();
@@ -1633,6 +1646,14 @@ impl AppWindow {
                     root.update(cx, |r, cx| r.set_fit_content(true, cx));
                 }
                 self.copies.insert(slot, copy);
+            }
+        }
+        // A fit block's mod lays out at its content's size (see `render_slot`).
+        for (slot, copy) in &self.copies {
+            if let Some(fit) = self.layout_fit(slot)
+                && let Some(root) = &copy.root
+            {
+                root.update(cx, |r, cx| r.set_fit_content(fit.is_some(), cx));
             }
         }
         self.publish_shown_copies();
@@ -4727,6 +4748,7 @@ impl AppWindow {
 
     fn render_slot(&self, slot: &str, cx: &mut Context<Self>) -> AnyElement {
         let in_overlay = slot.starts_with("overlay:") || self.overlays.iter().any(|o| o.layout.as_ref().is_some_and(|l| l.find(slot).is_some()));
+        let fit = self.layout_fit(slot).flatten();
         // A mod that is a pane in a tab: a click makes it the focused pane, and the
         // keyboard is its own (an editor, a board), like a terminal's.
         let in_pane = self.model.tab_of(slot).is_some();
@@ -4758,7 +4780,14 @@ impl AppWindow {
                 // Not cached here: ShellRoot caches the mod's view itself and draws its
                 // spinners over it, waking only itself (GPUI rebuilds all under a cached
                 // view that changed, so a spinner step would rebuild the mod).
-                .map(|d| if in_overlay { d.h_auto().min_h_0().flex().flex_col().child(root.clone()) } else { d.child(root.clone()) })
+                // Layout mods fill their block; a fit block's mod is as long as its
+                // content and fills it across, so the block can take that length.
+                .map(|d| match fit {
+                    Some(Axis::Row) => d.flex().flex_row().child(root.clone()),
+                    Some(Axis::Column) => d.flex().flex_col().child(root.clone()),
+                    None if in_overlay => d.h_auto().min_h_0().flex().flex_col().child(root.clone()),
+                    None => d.child(root.clone()),
+                })
                 .into_any_element(),
             Some(Copy { error, inst, .. }) => div()
                 .id(SharedString::from(format!("err-{slot}")))
@@ -4812,7 +4841,8 @@ impl AppWindow {
             }
             sep = sep.child(separator_line(row, w, color, top));
         }
-        if n.resizable() {
+        let fit_beside = n.children().iter().filter(|child| !child.hidden).skip(index).take(2).any(|child| matches!(child.size, Some(Span::Fit { .. })));
+        if n.resizable() && !fit_beside {
             let container = n.id.clone();
             let hit = HANDLE.max(width);
             sep = sep.child(
@@ -4868,6 +4898,8 @@ impl AppWindow {
         let new_a = new_a.min(total - 24.0);
         let (a_id, b_id) = (a.id.clone(), b.id.clone());
         let (sa, sb) = (a.size, b.size);
+        // A fit block's length is its content's: there's no boundary to move.
+        if matches!(sa, Some(Span::Fit { .. })) || matches!(sb, Some(Span::Fit { .. })) { return; }
         let Some(parent) = self.find_node_mut(&container) else { return };
         let Some(children) = parent.children_mut() else { return };
         let set = |children: &mut Vec<Node>, id: &str, s: Span| {
@@ -5469,6 +5501,11 @@ fn sized(slot: Div, n: &Node, axis: Axis, total_weight: f32) -> Div {
         Some(Span::Px { px: v }) => {
             slot = slot.flex_none();
             slot = if row { slot.w(settings::z(v)).h_full() } else { slot.h(settings::z(v)).w_full() };
+        }
+        // Its content's length along the axis; full across it, like a px block.
+        Some(Span::Fit { .. }) => {
+            slot = slot.flex_none();
+            slot = if row { slot.h_full() } else { slot.w_full() };
         }
         _ => {
             let w = pane_size::weight(n);
@@ -7302,6 +7339,36 @@ mod tests {
         cx.update(|window, cx| view.update(cx, |this, _| {
             assert!(this.pane_term("pa").unwrap().focus.is_focused(window));
         }));
+    }
+
+    #[test]
+    fn fit_blocks_take_their_contents_length() {
+        in_own_process("fit_block");
+    }
+
+    #[gpui::test]
+    fn fit_block(cx: &mut gpui::TestAppContext) {
+        use serde_json::json;
+        if !running_alone("fit_block") { return; }
+        let block = |id: &str, size: serde_json::Value| json!({ "id": id, "type": "block", "size": size, "content": { "mod": "probe" } });
+        let layout = json!({ "id": "root", "type": "column", "children": [
+            { "id": "bar", "type": "row", "size": {"px": 30}, "children": [
+                block("rest", json!({"weight": 1})), block("pill", json!({"fit": true})) ] },
+            block("tall", json!({"fit": true})),
+            block("main", json!({"weight": 1})) ] });
+        let main_js = "import { View, div } from \"gpui-kit\";\nexport default class P extends View { render() { return div().w(57).h(13); } }";
+        let (view, cx) = open_window(cx, "probe", main_js, layout);
+        cx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        view.update(cx, |this, _| {
+            let zoom = super::settings::zoom();
+            let b = this.bounds.borrow();
+            let (pill, rest, tall, main) = (b["pill"].size, b["rest"].size, b["tall"].size, b["main"].size);
+            assert_eq!((f32::from(pill.width), f32::from(pill.height)), (57.0 * zoom, 30.0 * zoom), "as wide as its content, as tall as the row");
+            assert_eq!(f32::from(rest.width + pill.width), f32::from(b["bar"].size.width), "the weight takes the rest");
+            assert_eq!((f32::from(tall.height), tall.width), (13.0 * zoom, main.width), "in a column: its content's height, full width");
+        });
     }
 
     #[test]

@@ -81,6 +81,24 @@ pub struct Float {
 pub enum Size {
     Px { px: f32 },
     Weight { weight: f32 },
+    /// `{"fit": true}`: as long as its content along the parent's axis.
+    Fit { fit: True },
+}
+
+/// A JSON `true` and nothing else, so `{"fit": false}` is no size at all.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct True;
+
+impl Serialize for True {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_bool(true)
+    }
+}
+
+impl<'de> Deserialize<'de> for True {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        if bool::deserialize(d)? { Ok(True) } else { Err(serde::de::Error::custom("fit is only ever true")) }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -612,9 +630,9 @@ impl Node {
             let share = match c[i].size {
                 Some(Size::Weight { weight }) => weight,
                 None => 1.0,
-                Some(Size::Px { .. }) => 1.0,
+                Some(Size::Px { .. } | Size::Fit { .. }) => 1.0,
             };
-            if !matches!(c[i].size, Some(Size::Px { .. })) {
+            if matches!(c[i].size, None | Some(Size::Weight { .. })) {
                 c[i].size = Some(Size::Weight { weight: share / 2.0 });
             }
             let mut new = new;
@@ -688,7 +706,7 @@ fn remove_inner(node: &mut Node, id: &str) -> Option<Node> {
             let weight = |s: Option<Size>| match s {
                 Some(Size::Weight { weight }) => Some(weight),
                 None => Some(1.0),
-                Some(Size::Px { .. }) => None,
+                Some(Size::Px { .. } | Size::Fit { .. }) => None,
             };
             let c = node.children_mut().unwrap();
             if let Some(gone) = weight(removed.size)
@@ -915,5 +933,23 @@ mod tests {
         let ids: Vec<_> = n.children().iter().map(|c| c.id.clone()).collect();
         assert_eq!(ids, ["c", "b", "a"]);
         assert_eq!(n.children()[0].size, Some(Size::Px { px: 100.0 }));
+    }
+
+    #[test]
+    fn fit_sizes_read_write_and_stay_fit() {
+        let n: Node = serde_json::from_str(r#"{ "id": "r", "type": "row", "children": [
+            { "id": "a", "type": "block", "size": {"fit": true}, "min": 20, "content": {"mod": "m"} },
+            { "id": "b", "type": "block", "content": {"mod": "m"} } ] }"#).unwrap();
+        assert_eq!(n.find("a").unwrap().size, Some(Size::Fit { fit: True }));
+        assert_eq!(serde_json::to_value(n.find("a").unwrap().size).unwrap(), serde_json::json!({"fit": true}));
+        assert_eq!(serde_json::from_str::<Node>(&serde_json::to_string(&n).unwrap()).unwrap(), n);
+        assert!(serde_json::from_str::<Size>(r#"{"fit": false}"#).is_err());
+        // Splitting or closing beside it moves weights, never its size.
+        let mut n = n;
+        n.split("a", Axis::Row, term("c"), "unused".into());
+        assert_eq!(n.find("a").unwrap().size, Some(Size::Fit { fit: True }));
+        n.remove("c");
+        n.remove("b");
+        assert_eq!(n.find("a").unwrap().size, Some(Size::Fit { fit: True }));
     }
 }
