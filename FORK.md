@@ -26,6 +26,7 @@ Remotes: `origin` is lunelson/herdr-app, `upstream` is herdrdev/herdr-app. Every
 |---|---|---|
 | `fix: tell the core the theme's palette so programs see its colors (#827)`: display facts sent to the core include the theme's 16 ANSI colors, so programs asking for them (OSC 4, e.g. Pi's default theme) get the theme's colors. Needs the core patch in `../herdr-core`. | issue [herdrdev/herdr-app#827](https://github.com/herdrdev/herdr-app/issues/827); PR branch `fix/display-palette` | diagnosis posted on #827 2026-11-13, waiting on Can; PR not opened yet |
 | `feat: layout blocks can fit their content with size {"fit": true}`: a third layout size, so a block in a row (column) takes its content's width (height); used by herdr-mods' `ln-main` tab bar. App only. | none yet; it grows the app's core (layout documents), so it needs Can's go before a PR (`AGENTS.md`) | on `fork` only |
+| `feat: toggle connected machines visibility in sidebar and picker`: a server-icon toggle in the `Spaces` header flips persisted `shared("machines.hidden")`, hiding remote machines from `spaces` (and its fallback git polling), `agents` (and `agent.next`/`prev`), `picker`, and `workspace-status`. App mods only. | none yet | on `fork` only |
 
 Update this table when a patch is added, lands upstream, or is dropped.
 
