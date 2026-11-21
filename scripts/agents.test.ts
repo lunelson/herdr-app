@@ -344,3 +344,33 @@ test("a title's leading emoji stays, a status glyph before it goes", () => {
   expect(row("🔴")).toBe("🔴");
   expect(row("🔴 claude")).toBe("🔴 claude");
 });
+
+test("hiding connected machines filters remote agents from the list and agent order", () => {
+  const program = { name: "Claude", key: "claude", agent: true };
+  const list = ["t1", "cloud/t2"].map((address, i) => ({
+    address, pane: `p-${address}`, tab: address, space: "s1", space_name: "Project",
+    program, title: address, status: "idle", seq: i, focused: false,
+  }));
+  let order: string[] = [];
+  let hidden = true;
+  const { agents } = harness([], {
+    agents: () => list, terminals: () => list.map(a => ({ ...a, state: "live", labels: {} })),
+    panes: () => list.map(a => ({ ...a, terminal: a.address })), focused: () => ({ agent: null }),
+    spaces: () => [{ tabs: list.map(a => ({ id: a.tab, name: a.address, named: true })) }],
+    layout: () => ({ id: "sidebar", size: { px: 268 } }),
+    shared: (k: string) => (k === "machines.hidden" ? hidden : "grouped"),
+    theme: () => ({ selected: "selected", hover: "hover" }),
+    setAgentOrder(addrs: string[]) { order = addrs; },
+    div: element, v_flex: element, h_flex: element, svg: element, image: element,
+  });
+  const ids = (node: any): string[] => [
+    ...(node?.id?.startsWith("ag-") ? [node.id] : []),
+    ...(node?.children ?? []).flatMap(ids),
+  ];
+  expect(ids(agents.render({}).node)).toEqual(["ag-sort", "ag-list", "ag-t1"]);
+  expect(order).toEqual(["t1"]);
+  hidden = false;
+  expect(ids(agents.render({}).node)).toEqual(["ag-sort", "ag-list", "ag-t1", "ag-cloud/t2"]);
+  expect(order).toEqual(["t1", "cloud/t2"]);
+});
+

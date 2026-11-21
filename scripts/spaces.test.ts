@@ -14,6 +14,7 @@ function harness(replies: unknown[] = [], storage = new Map<string, string>(), s
   const moves: { id: string; index: number }[] = [];
   const handlers: Record<string, (...args: any[]) => void> = {};
   const env = { layout: null as unknown };
+  const sharedState: Record<string, unknown> = {};
   // The list's scroll position: the requests the view makes are what the sidebar would scroll by.
   const ScrollHandle = { new: () => ({ calls: [] as number[], scroll_to_item(index: number) { this.calls.push(index); } }) };
   const theme = () => new Proxy({}, { get: () => "#000000" });
@@ -37,15 +38,15 @@ function harness(replies: unknown[] = [], storage = new Map<string, string>(), s
       expect(name).toBe("space.move");
       moves.push(args);
     },
-    ...Array(4).fill(() => element), () => null, () => availability, execGit, () => ({ active: true }), watch,
-    ScrollHandle, theme, () => env.layout, () => {},
+    ...Array(4).fill(() => element), (k: string) => sharedState[k] ?? null, () => availability, execGit, () => ({ active: true }), watch,
+    ScrollHandle, theme, () => env.layout, (k: string, v: unknown) => { sharedState[k] = v; },
   );
   const view = new Spaces();
   view.reconnecting = {};
   view.folded = new Set(["cloud"]);
   view.refreshMachines = () => {};
   const cx = { timer: { every() {} }, notify() {}, spawn(fn: (cx: unknown) => Promise<unknown>) { tasks.push(fn(cx)); } };
-  return { view, calls, tasks, cx, storage, moves, handlers, snapshot, availability, env, tracked };
+  return { view, calls, tasks, cx, storage, moves, handlers, snapshot, availability, env, tracked, sharedState };
 }
 
 test("git grouping reads refs for normal, detached, unborn and bare worktrees", async () => {
@@ -550,3 +551,23 @@ test("the list reveals the active space again when a machine header shifts its p
   h.view.render();
   expect(h.view.scroll.calls).toEqual([1, 2]);
 });
+
+test("hiding connected machines hides remote spaces, removes machine headers, and skips remote fallback git polling", () => {
+  const h = withHandle(scrollHarness(spaceList(["a", "b", "r1"], "b", ["r1"])));
+  h.sharedState["machines.hidden"] = true;
+  h.view.render();
+  // With remotes hidden, "This computer" header is omitted so "b" is at index 1 (not 2).
+  expect(h.view.scroll.calls).toEqual([1]);
+  // Fallback git polling skips remote machines while hidden, even if unfolded.
+  const localKey = JSON.stringify([null, "/a"]);
+  const remoteKey = JSON.stringify(["cloud", "/r1"]);
+  Object.assign(h.view, {
+    folded: new Set(), at: {}, busy: {}, ready: {}, unsure: new Set(), watching: new Map(),
+    git: { [localKey]: { repo: localKey }, [remoteKey]: { repo: remoteKey } },
+    checked: { [localKey]: 0, [remoteKey]: 0 },
+  });
+  const due = h.view.due(100_000, h.snapshot, []);
+  expect(due.has(localKey)).toBe(true);
+  expect(due.has(remoteKey)).toBe(false);
+});
+

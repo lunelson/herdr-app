@@ -144,10 +144,12 @@ export default class Spaces extends View {
       if (ready && this.ready[m.name] === false) for (const k of keys) if (JSON.parse(k)[0] === m.name) due.add(k);
       this.ready[m.name] = ready;
     }
+    const hidden = shared("machines.hidden") === true;
     if (window().active) {
       for (const k of keys) {
         const asks = this.git[k] || this.unsure.has(k);
-        if (asks && !this.folded.has(JSON.parse(k)[0]) && now - (this.checked[k] ?? 0) > FALLBACK) due.add(k);
+        const machine = JSON.parse(k)[0];
+        if (asks && !(hidden && machine) && !this.folded.has(machine) && now - (this.checked[k] ?? 0) > FALLBACK) due.add(k);
       }
     }
     return due;
@@ -350,7 +352,9 @@ export default class Spaces extends View {
     // children, and machine headers, login notes and loading rows count too.
     this.activeAt = -1;
     let before = 0;
-    const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
+    const hidden = shared("machines.hidden") === true;
+    const visibleRows = hidden ? rows.filter((r) => !r.w.machine) : rows;
+    const remote = hidden ? [] : [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
     const loading = m => {
       const layout = machines().find(k => k.name === m)?.layout;
       return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
@@ -358,9 +362,9 @@ export default class Spaces extends View {
     };
     const loadingRow = m => h_flex().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(collapsed ? 0 : 8).items_center().when(collapsed, el => el.justify_center()).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
     if (!remote.length) {
-      if (loading(null) && !rows.length) return [loadingRow(null)];
-      this.activeAt = rows.findIndex(r => r.w.active);
-      return rows.map(draw);
+      if (loading(null) && !visibleRows.length) return [loadingRow(null)];
+      this.activeAt = visibleRows.findIndex(r => r.w.active);
+      return visibleRows.map(draw);
     }
     const machineNames = [null, ...remote];
     return machineNames.flatMap((m) => {
@@ -544,12 +548,22 @@ export default class Spaces extends View {
       this.revealedAt = this.activeAt;
       if (this.activeAt >= 0) this.scroll.scroll_to_item(this.activeAt);
     }
+    const hidden = shared("machines.hidden") === true;
+    const hasRemote = sp.some(s => Boolean(s.machine)) || this.machines.length > 0 || Object.keys(this.reconnecting).length > 0;
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
       .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
         .when(collapsed, el => el.pl(0).pr(0).justify_center())
         .when(!collapsed, el => el.child("Spaces"))
-        .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).hover(s => s.bg(t.hover).text_color(t.foreground))
-          .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))
+        .child(h_flex().gap(2).items_center()
+          .when(!collapsed && (hasRemote || hidden), el => el.child(
+            div().id("machines-toggle").size(26).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+              .when(hidden, el => el.bg(t.raised).text_color(t.foreground))
+              .hover(s => s.bg(t.hover).text_color(t.foreground))
+              .tooltip(hidden ? "Show connected machines" : "Hide connected machines")
+              .on_click((_e, cx) => { setShared("machines.hidden", !hidden); cx.notify(); })
+              .child(svg("mods/workspace-chrome/server.svg").size(13))))
+          .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).hover(s => s.bg(t.hover).text_color(t.foreground))
+            .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14)))))
       .child(v_flex().flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always").track_scroll(this.scroll)
         // A block above (another mod's) growing, or the window resizing, shrinks this list and can push the active space out.
         .on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })

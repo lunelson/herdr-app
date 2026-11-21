@@ -74,7 +74,9 @@ export default class Picker extends View {
       addrs.forEach(walk);
       return n;
     };
-    const groups = spaces().map((w) => {
+    const hidden = shared("machines.hidden") === true;
+    const sp = hidden ? spaces().filter((w) => !w.machine) : spaces();
+    const groups = sp.map((w) => {
       const ctxs = w.tabs
         .map((ctx) => {
           const mine = all.filter((a) => a.tab === ctx.id);
@@ -98,7 +100,7 @@ export default class Picker extends View {
     }
     out.push({ kind: "new" });
     out.push({ kind: "space", machine: null });
-    for (const m of this.machines) out.push({ kind: "space", machine: m });
+    if (!hidden) for (const m of this.machines) out.push({ kind: "space", machine: m });
     return out;
   }
 
